@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  body {
+    font-family: 'Noto Sans KR', 'Pretendard', sans-serif;
+    background: linear-gradient(135deg, #FFF5F7 0%, #FFF9F0 50%, #F0F9FF 100%);
+    min-height: 100vh;
+    overscroll-behavior: none;
+  }
+  
+  /* 둥근 글씨용 */
+  .font-cute {
+    font-family: 'Gaegu', 'Jua', cursive;
+  }
+}
+
+@layer components {
+  .pastel-card {
+    @apply bg-white/80 backdrop-blur-sm rounded-3xl shadow-lg border-2 border-white;
+  }
+  
+  .cute-button {
+    @apply rounded-2xl px-5 py-3 font-bold transition-all active:scale-95 shadow-md;
+  }
+  
+  .cute-input {
+    @apply rounded-2xl px-4 py-3 border-2 border-pink-200 focus:border-pink-400 focus:outline-none bg-white/90 transition-colors;
+  }
+}
+
+/* 스크롤바 숨기기 (모바일 느낌) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 182, 193, 0.5);
+  border-radius: 10px;
+}
+
+/* 클릭 시 약간의 반응 */
+.tap-effect:active {
+  transform: scale(0.97);
+}
+
+/* 부드러운 페이드 인 */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
