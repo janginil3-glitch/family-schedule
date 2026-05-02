@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Plus, Trash2, Clock, Bell, Calendar as CalIcon, X } from 'lucide-react'
 import { supabase, FAMILY_MEMBERS, getMember } from '../lib/supabase'
 import { sendNotification } from '../lib/notifications'
+import ImageUpload from './ImageUpload'
 
 export default function CalendarView({ currentMember }) {
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -13,14 +14,14 @@ export default function CalendarView({ currentMember }) {
   const [time, setTime] = useState('')
   const [eventMember, setEventMember] = useState('')
   const [notify, setNotify] = useState(true)
+  const [imageUrl, setImageUrl] = useState(null)
+  const [zoomImage, setZoomImage] = useState(null)
   const [loading, setLoading] = useState(true)
 
   const fetchEvents = async () => {
     const { data } = await supabase
-      .from('calendar_events')
-      .select('*')
+      .from('calendar_events').select('*')
       .order('event_time', { ascending: true, nullsFirst: false })
-    
     if (data) setEvents(data)
     setLoading(false)
   }
@@ -42,7 +43,6 @@ export default function CalendarView({ currentMember }) {
     return () => supabase.removeChannel(channel)
   }, [])
 
-  // 달력 그리드 만들기
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
   const firstDay = new Date(year, month, 1).getDay()
@@ -66,7 +66,6 @@ export default function CalendarView({ currentMember }) {
 
   const handleSubmit = async () => {
     if (!title.trim() || !selectedDate) return
-    
     await supabase.from('calendar_events').insert({
       title: title.trim(),
       description: description.trim() || null,
@@ -74,13 +73,14 @@ export default function CalendarView({ currentMember }) {
       event_time: time || null,
       member_id: eventMember || null,
       notify_enabled: notify,
+      image_url: imageUrl,
     })
-    
     setTitle('')
     setDescription('')
     setTime('')
     setEventMember('')
     setNotify(true)
+    setImageUrl(null)
     setShowForm(false)
   }
 
@@ -95,7 +95,6 @@ export default function CalendarView({ currentMember }) {
 
   return (
     <div className="space-y-4">
-      {/* 타이틀 + 월 이동 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CalIcon className="w-7 h-7 text-orange-500" />
@@ -104,76 +103,50 @@ export default function CalendarView({ currentMember }) {
           </h2>
         </div>
         <div className="flex gap-1">
-          <button
-            onClick={() => setCurrentDate(new Date(year, month - 1, 1))}
-            className="cute-button bg-orange-200 text-orange-700 p-2"
-          >
+          <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="cute-button bg-orange-200 text-orange-700 p-2">
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <button
-            onClick={() => setCurrentDate(new Date())}
-            className="cute-button bg-orange-300 text-orange-800 px-3 text-sm"
-          >
+          <button onClick={() => setCurrentDate(new Date())} className="cute-button bg-orange-300 text-orange-800 px-3 text-sm">
             오늘
           </button>
-          <button
-            onClick={() => setCurrentDate(new Date(year, month + 1, 1))}
-            className="cute-button bg-orange-200 text-orange-700 p-2"
-          >
+          <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="cute-button bg-orange-200 text-orange-700 p-2">
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* 달력 그리드 */}
       <div className="pastel-card p-3">
-        {/* 요일 헤더 */}
         <div className="grid grid-cols-7 mb-2">
           {dayNames.map((day, i) => (
-            <div
-              key={day}
-              className={`text-center py-2 text-sm font-bold ${
-                i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-500'
-              }`}
-            >
+            <div key={day} className={`text-center py-2 text-sm font-bold ${
+              i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-500'
+            }`}>
               {day}
             </div>
           ))}
         </div>
-
-        {/* 날짜 */}
         <div className="grid grid-cols-7 gap-1">
           {days.map((d, idx) => {
             if (!d) return <div key={idx} className="aspect-square" />
-            
             const dayEvents = getEventsForDate(d.dateStr)
             const isToday = d.dateStr === todayStr
             const isSelected = d.dateStr === selectedDate
             const dow = (firstDay + d.day - 1) % 7
-
             return (
               <button
                 key={d.dateStr}
                 onClick={() => handleDateClick(d.dateStr)}
                 className={`aspect-square rounded-2xl p-1 flex flex-col items-center transition-all tap-effect relative ${
-                  isSelected
-                    ? 'bg-orange-300 ring-2 ring-orange-500 scale-105'
-                    : isToday
-                    ? 'bg-orange-100 border-2 border-orange-400'
-                    : 'bg-white/60 hover:bg-orange-50 border border-gray-100'
+                  isSelected ? 'bg-orange-300 ring-2 ring-orange-500 scale-105'
+                  : isToday ? 'bg-orange-100 border-2 border-orange-400'
+                  : 'bg-white/60 hover:bg-orange-50 border border-gray-100'
                 }`}
               >
-                <span
-                  className={`text-sm font-bold ${
-                    isSelected
-                      ? 'text-white'
-                      : dow === 0
-                      ? 'text-red-500'
-                      : dow === 6
-                      ? 'text-blue-500'
-                      : 'text-gray-700'
-                  }`}
-                >
+                <span className={`text-sm font-bold ${
+                  isSelected ? 'text-white'
+                  : dow === 0 ? 'text-red-500'
+                  : dow === 6 ? 'text-blue-500' : 'text-gray-700'
+                }`}>
                   {d.day}
                 </span>
                 {dayEvents.length > 0 && (
@@ -181,17 +154,10 @@ export default function CalendarView({ currentMember }) {
                     {dayEvents.slice(0, 3).map((e, i) => {
                       const member = getMember(e.member_id)
                       return (
-                        <div
-                          key={i}
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            member ? `bg-${member.color}-400` : 'bg-orange-400'
-                          }`}
-                        />
+                        <div key={i} className={`w-1.5 h-1.5 rounded-full ${member ? `bg-${member.color}-400` : 'bg-orange-400'}`} />
                       )
                     })}
-                    {dayEvents.length > 3 && (
-                      <span className="text-[8px] text-gray-500">+{dayEvents.length - 3}</span>
-                    )}
+                    {dayEvents.length > 3 && <span className="text-[8px] text-gray-500">+{dayEvents.length - 3}</span>}
                   </div>
                 )}
               </button>
@@ -200,7 +166,6 @@ export default function CalendarView({ currentMember }) {
         </div>
       </div>
 
-      {/* 선택된 날짜의 일정 */}
       {selectedDate && (
         <div className="pastel-card p-4 fade-in">
           <div className="flex items-center justify-between mb-3">
@@ -208,22 +173,15 @@ export default function CalendarView({ currentMember }) {
               📅 {new Date(selectedDate).getMonth() + 1}월 {new Date(selectedDate).getDate()}일 일정
             </h3>
             <div className="flex gap-1">
-              <button
-                onClick={() => setShowForm(!showForm)}
-                className="cute-button bg-orange-400 text-white text-sm"
-              >
+              <button onClick={() => setShowForm(!showForm)} className="cute-button bg-orange-400 text-white text-sm">
                 <Plus className="w-4 h-4 inline" /> 추가
               </button>
-              <button
-                onClick={() => { setSelectedDate(null); setShowForm(false); }}
-                className="cute-button bg-gray-200 text-gray-600 p-2"
-              >
+              <button onClick={() => { setSelectedDate(null); setShowForm(false); }} className="cute-button bg-gray-200 text-gray-600 p-2">
                 <X className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          {/* 일정 추가 폼 */}
           {showForm && (
             <div className="bg-orange-50 rounded-2xl p-3 mb-3 fade-in">
               <input
@@ -246,7 +204,6 @@ export default function CalendarView({ currentMember }) {
                   value={time}
                   onChange={(e) => setTime(e.target.value)}
                   className="cute-input flex-1 text-sm"
-                  placeholder="시간"
                 />
                 <select
                   value={eventMember}
@@ -259,6 +216,7 @@ export default function CalendarView({ currentMember }) {
                   ))}
                 </select>
               </div>
+              <ImageUpload value={imageUrl} onChange={setImageUrl} color="orange" />
               <label className="flex items-center gap-2 mb-2 text-sm">
                 <input
                   type="checkbox"
@@ -270,7 +228,7 @@ export default function CalendarView({ currentMember }) {
                 <span>알림 받기</span>
               </label>
               <div className="flex gap-2 justify-end">
-                <button onClick={() => setShowForm(false)} className="cute-button bg-gray-200 text-gray-600 text-sm">
+                <button onClick={() => { setShowForm(false); setImageUrl(null); }} className="cute-button bg-gray-200 text-gray-600 text-sm">
                   취소
                 </button>
                 <button
@@ -284,11 +242,8 @@ export default function CalendarView({ currentMember }) {
             </div>
           )}
 
-          {/* 일정 목록 */}
           {selectedEvents.length === 0 ? (
-            <div className="text-center py-6 text-gray-400 text-sm">
-              이 날에는 일정이 없어요
-            </div>
+            <div className="text-center py-6 text-gray-400 text-sm">이 날에는 일정이 없어요</div>
           ) : (
             <div className="space-y-2">
               {selectedEvents.map(event => {
@@ -301,19 +256,22 @@ export default function CalendarView({ currentMember }) {
                           {member && <span className="text-lg">{member.emoji}</span>}
                           <span className="font-bold text-gray-800">{event.title}</span>
                         </div>
-                        {event.description && (
-                          <p className="text-sm text-gray-600 mb-1">{event.description}</p>
+                        {event.description && <p className="text-sm text-gray-600 mb-1">{event.description}</p>}
+                        {event.image_url && (
+                          <img
+                            src={event.image_url}
+                            alt="일정 사진"
+                            onClick={() => setZoomImage(event.image_url)}
+                            className="rounded-xl max-h-40 mt-2 mb-1 cursor-pointer hover:opacity-90 border border-gray-200"
+                          />
                         )}
-                        <div className="flex items-center gap-3 text-xs text-gray-500">
+                        <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
                           {event.event_time && (
                             <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {event.event_time.substring(0, 5)}
+                              <Clock className="w-3 h-3" />{event.event_time.substring(0, 5)}
                             </span>
                           )}
-                          {event.notify_enabled && (
-                            <Bell className="w-3 h-3 text-orange-400" />
-                          )}
+                          {event.notify_enabled && <Bell className="w-3 h-3 text-orange-400" />}
                           {member && (
                             <span className={`px-2 py-0.5 bg-${member.color}-100 text-${member.color}-700 rounded-full font-bold`}>
                               {member.name}
@@ -321,10 +279,7 @@ export default function CalendarView({ currentMember }) {
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleDelete(event.id)}
-                        className="text-gray-300 hover:text-red-400 p-1"
-                      >
+                      <button onClick={() => handleDelete(event.id)} className="text-gray-300 hover:text-red-400 p-1">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -337,9 +292,16 @@ export default function CalendarView({ currentMember }) {
       )}
 
       {!selectedDate && (
-        <p className="text-center text-sm text-gray-400 py-2">
-          날짜를 눌러 일정을 추가해보세요 🌸
-        </p>
+        <p className="text-center text-sm text-gray-400 py-2">날짜를 눌러 일정을 추가해보세요 🌸</p>
+      )}
+
+      {zoomImage && (
+        <div
+          onClick={() => setZoomImage(null)}
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer"
+        >
+          <img src={zoomImage} alt="크게 보기" className="max-w-full max-h-full rounded-2xl" />
+        </div>
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, Check, Trash2, Clock, Bell, BellOff, ListChecks } from 'lucide-react'
 import { supabase, FAMILY_MEMBERS, getMember } from '../lib/supabase'
+import QuickTemplates from './QuickTemplates'
 
 export default function Todos({ currentMember }) {
   const [todos, setTodos] = useState([])
@@ -15,11 +16,8 @@ export default function Todos({ currentMember }) {
 
   const fetchData = async () => {
     const { data } = await supabase
-      .from('todos')
-      .select('*')
-      .eq('date', today)
+      .from('todos').select('*').eq('date', today)
       .order('scheduled_time', { ascending: true, nullsFirst: false })
-    
     if (data) setTodos(data)
     setLoading(false)
   }
@@ -35,7 +33,6 @@ export default function Todos({ currentMember }) {
 
   const handleSubmit = async () => {
     if (!title.trim()) return
-    
     await supabase.from('todos').insert({
       member_id: viewMember,
       title: title.trim(),
@@ -43,18 +40,22 @@ export default function Todos({ currentMember }) {
       date: today,
       notify_enabled: notify,
     })
-    
     setTitle('')
     setTime('')
     setNotify(true)
     setShowForm(false)
   }
 
+  // 템플릿 칩 클릭 시 자동 입력
+  const handleTemplateSelect = (template) => {
+    setTitle(template.text)
+    if (template.default_time) {
+      setTime(template.default_time.substring(0, 5))
+    }
+  }
+
   const toggleDone = async (todo) => {
-    await supabase
-      .from('todos')
-      .update({ is_done: !todo.is_done })
-      .eq('id', todo.id)
+    await supabase.from('todos').update({ is_done: !todo.is_done }).eq('id', todo.id)
   }
 
   const handleDelete = async (id) => {
@@ -66,39 +67,32 @@ export default function Todos({ currentMember }) {
 
   return (
     <div className="space-y-4">
-      {/* 타이틀 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ListChecks className="w-7 h-7 text-blue-500" />
           <h2 className="text-2xl font-bold font-cute text-blue-600">오늘 할 일</h2>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="cute-button bg-blue-400 text-white"
-        >
+        <button onClick={() => setShowForm(!showForm)} className="cute-button bg-blue-400 text-white">
           <Plus className="w-5 h-5 inline" />
         </button>
       </div>
 
-      {/* 가족 구성원 선택 */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {FAMILY_MEMBERS.map(m => (
           <button
             key={m.id}
             onClick={() => setViewMember(m.id)}
             className={`flex-shrink-0 px-4 py-2 rounded-2xl font-bold text-sm tap-effect transition-all ${
-              viewMember === m.id 
-                ? `bg-${m.color}-200 border-2 border-${m.color}-400 scale-105` 
+              viewMember === m.id
+                ? `bg-${m.color}-200 border-2 border-${m.color}-400 scale-105`
                 : 'bg-white/60 border-2 border-gray-200'
             }`}
           >
-            <span className="mr-1">{m.emoji}</span>
-            {m.name}
+            <span className="mr-1">{m.emoji}</span>{m.name}
           </button>
         ))}
       </div>
 
-      {/* 진행률 */}
       {memberTodos.length > 0 && (
         <div className="pastel-card p-3">
           <div className="flex items-center justify-between mb-2">
@@ -118,16 +112,17 @@ export default function Todos({ currentMember }) {
         </div>
       )}
 
-      {/* 작성 폼 */}
       {showForm && (
         <div className="pastel-card p-4 fade-in">
+          {/* 자주 쓰는 항목 칩 */}
+          <QuickTemplates category="todo" onSelect={handleTemplateSelect} color="blue" />
+
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="무엇을 해야하나요?"
             className="cute-input w-full mb-3"
-            autoFocus
           />
           <div className="flex items-center gap-3 mb-3">
             <Clock className="w-5 h-5 text-blue-400" />
@@ -163,7 +158,6 @@ export default function Todos({ currentMember }) {
         </div>
       )}
 
-      {/* 목록 */}
       {loading ? (
         <div className="text-center py-12 text-gray-400">불러오는 중...</div>
       ) : memberTodos.length === 0 ? (
@@ -176,21 +170,16 @@ export default function Todos({ currentMember }) {
           {memberTodos.map(todo => (
             <div
               key={todo.id}
-              className={`pastel-card p-4 flex items-center gap-3 transition-all ${
-                todo.is_done ? 'opacity-60' : ''
-              }`}
+              className={`pastel-card p-4 flex items-center gap-3 transition-all ${todo.is_done ? 'opacity-60' : ''}`}
             >
               <button
                 onClick={() => toggleDone(todo)}
                 className={`w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 tap-effect transition-all ${
-                  todo.is_done
-                    ? 'bg-blue-400 border-blue-400'
-                    : 'border-gray-300 hover:border-blue-300'
+                  todo.is_done ? 'bg-blue-400 border-blue-400' : 'border-gray-300 hover:border-blue-300'
                 }`}
               >
                 {todo.is_done && <Check className="w-5 h-5 text-white" />}
               </button>
-
               <div className="flex-1">
                 <div className={`font-bold ${todo.is_done ? 'line-through text-gray-400' : ''}`}>
                   {todo.title}
@@ -199,19 +188,11 @@ export default function Todos({ currentMember }) {
                   <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
                     <Clock className="w-3 h-3" />
                     {todo.scheduled_time.substring(0, 5)}
-                    {todo.notify_enabled ? (
-                      <Bell className="w-3 h-3 ml-1 text-blue-400" />
-                    ) : (
-                      <BellOff className="w-3 h-3 ml-1" />
-                    )}
+                    {todo.notify_enabled ? <Bell className="w-3 h-3 ml-1 text-blue-400" /> : <BellOff className="w-3 h-3 ml-1" />}
                   </div>
                 )}
               </div>
-
-              <button
-                onClick={() => handleDelete(todo.id)}
-                className="text-gray-300 hover:text-red-400 p-2"
-              >
+              <button onClick={() => handleDelete(todo.id)} className="text-gray-300 hover:text-red-400 p-2">
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>

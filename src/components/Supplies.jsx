@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Plus, Check, Trash2, Backpack } from 'lucide-react'
 import { supabase, FAMILY_MEMBERS, getMember } from '../lib/supabase'
+import QuickTemplates from './QuickTemplates'
 
 export default function Supplies({ currentMember }) {
   const [supplies, setSupplies] = useState([])
@@ -12,12 +13,10 @@ export default function Supplies({ currentMember }) {
 
   const fetchData = async () => {
     const { data } = await supabase
-      .from('supplies')
-      .select('*')
+      .from('supplies').select('*')
       .gte('for_date', new Date().toISOString().split('T')[0])
       .order('for_date', { ascending: true })
       .order('is_packed', { ascending: true })
-    
     if (data) setSupplies(data)
     setLoading(false)
   }
@@ -33,15 +32,17 @@ export default function Supplies({ currentMember }) {
 
   const handleSubmit = async () => {
     if (!itemName.trim()) return
-    
     await supabase.from('supplies').insert({
       member_id: viewMember,
       item_name: itemName.trim(),
       for_date: forDate,
     })
-    
     setItemName('')
     setShowForm(false)
+  }
+
+  const handleTemplateSelect = (template) => {
+    setItemName(template.text)
   }
 
   const togglePacked = async (item) => {
@@ -63,31 +64,24 @@ export default function Supplies({ currentMember }) {
     const date = new Date(dateStr)
     const today = new Date().toISOString().split('T')[0]
     const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
-    
     if (dateStr === today) return '🌟 오늘'
     if (dateStr === tomorrow) return '🌙 내일'
-    
     const days = ['일', '월', '화', '수', '목', '금', '토']
     return `${date.getMonth() + 1}월 ${date.getDate()}일 (${days[date.getDay()]})`
   }
 
   return (
     <div className="space-y-4">
-      {/* 타이틀 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Backpack className="w-7 h-7 text-green-500" />
           <h2 className="text-2xl font-bold font-cute text-green-600">준비물</h2>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="cute-button bg-green-400 text-white"
-        >
+        <button onClick={() => setShowForm(!showForm)} className="cute-button bg-green-400 text-white">
           <Plus className="w-5 h-5 inline" />
         </button>
       </div>
 
-      {/* 가족 선택 */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {FAMILY_MEMBERS.map(m => (
           <button
@@ -99,25 +93,25 @@ export default function Supplies({ currentMember }) {
                 : 'bg-white/60 border-2 border-gray-200'
             }`}
           >
-            <span className="mr-1">{m.emoji}</span>
-            {m.name}
+            <span className="mr-1">{m.emoji}</span>{m.name}
           </button>
         ))}
       </div>
 
-      {/* 작성 폼 */}
       {showForm && (
         <div className="pastel-card p-4 fade-in">
           <p className="text-sm text-gray-500 mb-3">
             {getMember(viewMember)?.emoji} {getMember(viewMember)?.name}의 준비물을 추가해요
           </p>
+
+          <QuickTemplates category="supplies" onSelect={handleTemplateSelect} color="green" />
+
           <input
             type="text"
             value={itemName}
             onChange={(e) => setItemName(e.target.value)}
             placeholder="무엇이 필요한가요? (예: 색종이, 풀)"
             className="cute-input w-full mb-3"
-            autoFocus
           />
           <input
             type="date"
@@ -140,7 +134,6 @@ export default function Supplies({ currentMember }) {
         </div>
       )}
 
-      {/* 목록 */}
       {loading ? (
         <div className="text-center py-12 text-gray-400">불러오는 중...</div>
       ) : filtered.length === 0 ? (
@@ -167,9 +160,7 @@ export default function Supplies({ currentMember }) {
                       <button
                         onClick={() => togglePacked(item)}
                         className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 tap-effect transition-all ${
-                          item.is_packed
-                            ? 'bg-green-400 border-green-400'
-                            : 'border-gray-300 hover:border-green-300'
+                          item.is_packed ? 'bg-green-400 border-green-400' : 'border-gray-300 hover:border-green-300'
                         }`}
                       >
                         {item.is_packed && <Check className="w-4 h-4 text-white" />}
@@ -177,10 +168,7 @@ export default function Supplies({ currentMember }) {
                       <span className={`flex-1 ${item.is_packed ? 'line-through text-gray-400' : ''}`}>
                         {item.item_name}
                       </span>
-                      <button
-                        onClick={() => handleDelete(item.id)}
-                        className="text-gray-300 hover:text-red-400 p-1"
-                      >
+                      <button onClick={() => handleDelete(item.id)} className="text-gray-300 hover:text-red-400 p-1">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
