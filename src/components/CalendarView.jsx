@@ -1,14 +1,19 @@
 import { useState, useEffect } from 'react'
-import { ChevronLeft, ChevronRight, Plus, Trash2, Clock, Bell, Calendar as CalIcon, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Clock, Bell, Calendar as CalIcon, X, Settings, Briefcase } from 'lucide-react'
 import { supabase, FAMILY_MEMBERS, getMember } from '../lib/supabase'
 import { sendNotification } from '../lib/notifications'
+import { fetchShiftConfig, getShiftForDate, SHIFT_TYPES, toggleOvertime } from '../lib/shifts'
 import ImageUpload from './ImageUpload'
+import ShiftSettings from './ShiftSettings'
 
 export default function CalendarView({ currentMember }) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(null)
   const [events, setEvents] = useState([])
+  const [overtimeDays, setOvertimeDays] = useState([])
+  const [shiftConfig, setShiftConfig] = useState(null)
   const [showForm, setShowForm] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [time, setTime] = useState('')
@@ -18,37 +23,48 @@ export default function CalendarView({ currentMember }) {
   const [zoomImage, setZoomImage] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchEvents = async () => {
-    const { data } = await supabase
-      .from('calendar_events').select('*')
-      .order('event_time', { ascending: true, nullsFirst: false })
-    if (data) setEvents(data)
+  const fetchAll = async () => {
+    const [eventsRes, otRes, cfg] = await Promise.all([
+      supabase.from('calendar_events').select('*').order('event_time', { ascending: true, nullsFirst: false }),
+      supabase.from('overtime_days').select('*'),
+      fetchShiftConfig(),
+    ])
+    if (eventsRes.data) setEvents(eventsRes.data)
+    if (otRes.data) setOvertimeDays(otRes.data.map(d => d.work_date))
+    if (cfg) setShiftConfig(cfg)
     setLoading(false)
   }
 
   useEffect(() => {
-    fetchEvents()
-    const channel = supabase
-      .channel('calendar-channel')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'calendar_events' },
+    fetchAll()
+    const ch1 = supabase.channel('calendar-channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events' },
         (payload) => {
-          fetchEvents()
+          fetchAll()
           if (payload.eventType === 'INSERT') {
-            sendNotification('📅 새 일정 추가됨', payload.new.title)
+            const author = getMember(payload.new.author_id)
+            sendNotification(`📅 ${author?.name || '가족'}이(가) 일정 추가`, payload.new.title)
           }
         }
-      )
+      ).subscribe()
+    const ch2 = supabase.channel('overtime-channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'overtime_days' }, fetchAll)
       .subscribe()
-    return () => supabase.removeChannel(channel)
+    const ch3 = supabase.channel('shift-channel')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shift_config' }, fetchAll)
+      .subscribe()
+    return () => {
+      supabase.removeChannel(ch1)
+      supabase.removeChannel(ch2)
+      supabase.removeChannel(ch3)
+    }
   }, [])
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
   const firstDay = new Date(year, month, 1).getDay()
   const lastDate = new Date(year, month + 1, 0).getDate()
-  const today = new Date()
-  const todayStr = today.toISOString().split('T')[0]
+  const todayStr = new Date().toISOString().split('T')[0]
 
   const days = []
   for (let i = 0; i < firstDay; i++) days.push(null)
@@ -58,6 +74,7 @@ export default function CalendarView({ currentMember }) {
   }
 
   const getEventsForDate = (dateStr) => events.filter(e => e.event_date === dateStr)
+  const isOvertime = (dateStr) => overtimeDays.includes(dateStr)
 
   const handleDateClick = (dateStr) => {
     setSelectedDate(dateStr)
@@ -72,16 +89,11 @@ export default function CalendarView({ currentMember }) {
       event_date: selectedDate,
       event_time: time || null,
       member_id: eventMember || null,
+      author_id: currentMember.id, // 누가 추가했는지 저장
       notify_enabled: notify,
       image_url: imageUrl,
     })
-    setTitle('')
-    setDescription('')
-    setTime('')
-    setEventMember('')
-    setNotify(true)
-    setImageUrl(null)
-    setShowForm(false)
+    setTitle(''); setDescription(''); setTime(''); setEventMember(''); setNotify(true); setImageUrl(null); setShowForm(false)
   }
 
   const handleDelete = async (id) => {
@@ -89,9 +101,17 @@ export default function CalendarView({ currentMember }) {
     await supabase.from('calendar_events').delete().eq('id', id)
   }
 
+  const handleToggleOT = async () => {
+    if (!selectedDate) return
+    await toggleOvertime(selectedDate)
+  }
+
   const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월']
   const dayNames = ['일', '월', '화', '수', '목', '금', '토']
   const selectedEvents = selectedDate ? getEventsForDate(selectedDate) : []
+  const selectedShift = selectedDate && shiftConfig ? getShiftForDate(selectedDate, shiftConfig) : null
+  const selectedShiftInfo = selectedShift ? SHIFT_TYPES[selectedShift] : null
+  const selectedIsOT = selectedDate ? isOvertime(selectedDate) : false
 
   return (
     <div className="space-y-4">
@@ -103,6 +123,13 @@ export default function CalendarView({ currentMember }) {
           </h2>
         </div>
         <div className="flex gap-1">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="cute-button bg-orange-100 text-orange-700 p-2"
+            title="아빠 근무표 설정"
+          >
+            <Briefcase className="w-5 h-5" />
+          </button>
           <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="cute-button bg-orange-200 text-orange-700 p-2">
             <ChevronLeft className="w-5 h-5" />
           </button>
@@ -115,49 +142,84 @@ export default function CalendarView({ currentMember }) {
         </div>
       </div>
 
-      <div className="pastel-card p-3">
-        <div className="grid grid-cols-7 mb-2">
+      {/* 근무 범례 */}
+      {shiftConfig && (
+        <div className="pastel-card p-2 flex items-center justify-around text-xs flex-wrap gap-2">
+          <span className="font-bold text-gray-600">🌳 아빠:</span>
+          {Object.entries(SHIFT_TYPES).filter(([k]) => k !== 'off').map(([key, info]) => (
+            <span key={key} className={`flex items-center gap-1 px-2 py-1 rounded-full ${info.bgColor} ${info.textColor} font-bold`}>
+              <span>{info.emoji}</span>{info.short}
+            </span>
+          ))}
+          <span className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-100 text-red-700 font-bold">
+            ⚡ 잔업
+          </span>
+        </div>
+      )}
+
+      {/* 달력 그리드 */}
+      <div className="pastel-card p-2">
+        <div className="grid grid-cols-7 mb-1">
           {dayNames.map((day, i) => (
-            <div key={day} className={`text-center py-2 text-sm font-bold ${
+            <div key={day} className={`text-center py-1 text-xs font-bold ${
               i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-500'
-            }`}>
-              {day}
-            </div>
+            }`}>{day}</div>
           ))}
         </div>
-        <div className="grid grid-cols-7 gap-1">
+        <div className="grid grid-cols-7 gap-0.5">
           {days.map((d, idx) => {
-            if (!d) return <div key={idx} className="aspect-square" />
+            if (!d) return <div key={idx} className="aspect-[3/4]" />
             const dayEvents = getEventsForDate(d.dateStr)
             const isToday = d.dateStr === todayStr
             const isSelected = d.dateStr === selectedDate
             const dow = (firstDay + d.day - 1) % 7
+            const shift = shiftConfig ? getShiftForDate(d.dateStr, shiftConfig) : null
+            const shiftInfo = shift ? SHIFT_TYPES[shift] : null
+            const ot = isOvertime(d.dateStr)
+
             return (
               <button
                 key={d.dateStr}
                 onClick={() => handleDateClick(d.dateStr)}
-                className={`aspect-square rounded-2xl p-1 flex flex-col items-center transition-all tap-effect relative ${
+                className={`aspect-[3/4] rounded-xl p-0.5 flex flex-col items-center transition-all tap-effect relative overflow-hidden ${
                   isSelected ? 'bg-orange-300 ring-2 ring-orange-500 scale-105'
                   : isToday ? 'bg-orange-100 border-2 border-orange-400'
-                  : 'bg-white/60 hover:bg-orange-50 border border-gray-100'
+                  : shiftInfo ? `${shiftInfo.bgColor} border ${shiftInfo.borderColor}`
+                  : 'bg-white/60 border border-gray-100'
                 }`}
               >
-                <span className={`text-sm font-bold ${
+                {/* 잔업 표시 */}
+                {ot && (
+                  <span className="absolute top-0 right-0.5 text-[8px] text-red-600 font-bold">⚡</span>
+                )}
+
+                {/* 날짜 */}
+                <span className={`text-xs font-bold leading-tight ${
                   isSelected ? 'text-white'
                   : dow === 0 ? 'text-red-500'
-                  : dow === 6 ? 'text-blue-500' : 'text-gray-700'
+                  : dow === 6 ? 'text-blue-500'
+                  : 'text-gray-700'
                 }`}>
                   {d.day}
                 </span>
+
+                {/* 근무 표시 */}
+                {shiftInfo && !isSelected && (
+                  <span className={`text-[8px] font-bold ${shiftInfo.textColor} leading-none`}>
+                    {shiftInfo.short}
+                  </span>
+                )}
+
+                {/* 일정 점 */}
                 {dayEvents.length > 0 && (
-                  <div className="flex gap-0.5 mt-0.5 flex-wrap justify-center">
+                  <div className="flex gap-0.5 mt-auto flex-wrap justify-center pb-0.5">
                     {dayEvents.slice(0, 3).map((e, i) => {
-                      const member = getMember(e.member_id)
+                      const member = getMember(e.member_id) || getMember(e.author_id)
                       return (
-                        <div key={i} className={`w-1.5 h-1.5 rounded-full ${member ? `bg-${member.color}-400` : 'bg-orange-400'}`} />
+                        <div key={i} className={`w-1 h-1 rounded-full ${member ? `bg-${member.color}-500` : 'bg-orange-500'}`} />
                       )
                     })}
-                    {dayEvents.length > 3 && <span className="text-[8px] text-gray-500">+{dayEvents.length - 3}</span>}
+                    {dayEvents.length > 3 && <span className="text-[7px] text-gray-500">+</span>}
                   </div>
                 )}
               </button>
@@ -166,11 +228,12 @@ export default function CalendarView({ currentMember }) {
         </div>
       </div>
 
+      {/* 선택된 날짜 */}
       {selectedDate && (
         <div className="pastel-card p-4 fade-in">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-bold text-orange-600">
-              📅 {new Date(selectedDate).getMonth() + 1}월 {new Date(selectedDate).getDate()}일 일정
+              📅 {new Date(selectedDate).getMonth() + 1}월 {new Date(selectedDate).getDate()}일
             </h3>
             <div className="flex gap-1">
               <button onClick={() => setShowForm(!showForm)} className="cute-button bg-orange-400 text-white text-sm">
@@ -182,13 +245,38 @@ export default function CalendarView({ currentMember }) {
             </div>
           </div>
 
+          {/* 아빠 근무 정보 + 잔업 토글 */}
+          {selectedShiftInfo && (
+            <div className={`rounded-2xl p-3 mb-3 ${selectedShiftInfo.bgColor} border-2 ${selectedShiftInfo.borderColor}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className={`font-bold text-sm ${selectedShiftInfo.textColor}`}>
+                    🌳 아빠 {selectedShiftInfo.emoji} {selectedShiftInfo.name}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-0.5">{selectedShiftInfo.time}</p>
+                </div>
+                <button
+                  onClick={handleToggleOT}
+                  className={`cute-button text-xs px-3 py-1.5 ${
+                    selectedIsOT
+                      ? 'bg-red-500 text-white'
+                      : 'bg-white border-2 border-red-200 text-red-600'
+                  }`}
+                >
+                  ⚡ {selectedIsOT ? '잔업 취소' : '잔업 표시'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 일정 추가 폼 */}
           {showForm && (
             <div className="bg-orange-50 rounded-2xl p-3 mb-3 fade-in">
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="일정 제목 (예: 병원 가기)"
+                placeholder="일정 제목"
                 className="cute-input w-full mb-2 text-sm"
                 autoFocus
               />
@@ -242,17 +330,19 @@ export default function CalendarView({ currentMember }) {
             </div>
           )}
 
+          {/* 일정 목록 */}
           {selectedEvents.length === 0 ? (
-            <div className="text-center py-6 text-gray-400 text-sm">이 날에는 일정이 없어요</div>
+            <div className="text-center py-4 text-gray-400 text-sm">이 날에는 일정이 없어요</div>
           ) : (
             <div className="space-y-2">
               {selectedEvents.map(event => {
                 const member = event.member_id ? getMember(event.member_id) : null
+                const author = event.author_id ? getMember(event.author_id) : null
                 return (
                   <div key={event.id} className="bg-white rounded-2xl p-3 border border-orange-100">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           {member && <span className="text-lg">{member.emoji}</span>}
                           <span className="font-bold text-gray-800">{event.title}</span>
                         </div>
@@ -265,7 +355,7 @@ export default function CalendarView({ currentMember }) {
                             className="rounded-xl max-h-40 mt-2 mb-1 cursor-pointer hover:opacity-90 border border-gray-200"
                           />
                         )}
-                        <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                        <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 flex-wrap">
                           {event.event_time && (
                             <span className="flex items-center gap-1">
                               <Clock className="w-3 h-3" />{event.event_time.substring(0, 5)}
@@ -275,6 +365,11 @@ export default function CalendarView({ currentMember }) {
                           {member && (
                             <span className={`px-2 py-0.5 bg-${member.color}-100 text-${member.color}-700 rounded-full font-bold`}>
                               {member.name}
+                            </span>
+                          )}
+                          {author && (
+                            <span className="text-[10px] text-gray-400">
+                              ✏️ {author.emoji} {author.name}
                             </span>
                           )}
                         </div>
@@ -296,13 +391,12 @@ export default function CalendarView({ currentMember }) {
       )}
 
       {zoomImage && (
-        <div
-          onClick={() => setZoomImage(null)}
-          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer"
-        >
+        <div onClick={() => setZoomImage(null)} className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer">
           <img src={zoomImage} alt="크게 보기" className="max-w-full max-h-full rounded-2xl" />
         </div>
       )}
+
+      {showSettings && <ShiftSettings onClose={() => setShowSettings(false)} />}
     </div>
   )
 }

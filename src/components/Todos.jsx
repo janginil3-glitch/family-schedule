@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Plus, Check, Trash2, Clock, Bell, BellOff, ListChecks } from 'lucide-react'
+import { Plus, Check, Trash2, Clock, Bell, BellOff, ListChecks, History } from 'lucide-react'
 import { supabase, FAMILY_MEMBERS, getMember } from '../lib/supabase'
 import QuickTemplates from './QuickTemplates'
+import HistoryView from './HistoryView'
 
 export default function Todos({ currentMember }) {
   const [todos, setTodos] = useState([])
   const [showForm, setShowForm] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [title, setTitle] = useState('')
   const [time, setTime] = useState('')
   const [notify, setNotify] = useState(true)
@@ -46,12 +48,9 @@ export default function Todos({ currentMember }) {
     setShowForm(false)
   }
 
-  // 템플릿 칩 클릭 시 자동 입력
   const handleTemplateSelect = (template) => {
     setTitle(template.text)
-    if (template.default_time) {
-      setTime(template.default_time.substring(0, 5))
-    }
+    if (template.default_time) setTime(template.default_time.substring(0, 5))
   }
 
   const toggleDone = async (todo) => {
@@ -72,9 +71,17 @@ export default function Todos({ currentMember }) {
           <ListChecks className="w-7 h-7 text-blue-500" />
           <h2 className="text-2xl font-bold font-cute text-blue-600">오늘 할 일</h2>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="cute-button bg-blue-400 text-white">
-          <Plus className="w-5 h-5 inline" />
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowHistory(true)}
+            className="cute-button bg-blue-100 text-blue-700 text-sm flex items-center gap-1"
+          >
+            <History className="w-4 h-4" /> 기록
+          </button>
+          <button onClick={() => setShowForm(!showForm)} className="cute-button bg-blue-400 text-white">
+            <Plus className="w-5 h-5 inline" />
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-2">
@@ -114,9 +121,7 @@ export default function Todos({ currentMember }) {
 
       {showForm && (
         <div className="pastel-card p-4 fade-in">
-          {/* 자주 쓰는 항목 칩 */}
           <QuickTemplates category="todo" onSelect={handleTemplateSelect} color="blue" />
-
           <input
             type="text"
             value={title}
@@ -164,6 +169,12 @@ export default function Todos({ currentMember }) {
         <div className="pastel-card p-8 text-center">
           <div className="text-5xl mb-3">☀️</div>
           <p className="text-gray-500">오늘 할 일이 없어요!</p>
+          <button
+            onClick={() => setShowHistory(true)}
+            className="mt-3 text-sm text-blue-500 underline"
+          >
+            지난 기록 보기
+          </button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -199,6 +210,8 @@ export default function Todos({ currentMember }) {
           ))}
         </div>
       )}
+
+      {showHistory && <HistoryView category="todos" onClose={() => setShowHistory(false)} />}
     </div>
   )
 }

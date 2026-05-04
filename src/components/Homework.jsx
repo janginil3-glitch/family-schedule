@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Plus, Check, Trash2, BookOpen, Lock } from 'lucide-react'
+import { Plus, Check, Trash2, BookOpen, Lock, History } from 'lucide-react'
 import { supabase, getMember } from '../lib/supabase'
 import QuickTemplates from './QuickTemplates'
 import ImageUpload from './ImageUpload'
+import HistoryView from './HistoryView'
 
 const CHILDREN = [
   { id: 'eungyeol', name: '은결', emoji: '🦁', color: 'eungyeol' },
@@ -12,6 +13,7 @@ const CHILDREN = [
 export default function Homework({ currentMember }) {
   const [homework, setHomework] = useState([])
   const [showForm, setShowForm] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
   const [subject, setSubject] = useState('')
   const [content, setContent] = useState('')
   const [imageUrl, setImageUrl] = useState(null)
@@ -19,11 +21,13 @@ export default function Homework({ currentMember }) {
   const [viewChild, setViewChild] = useState(currentMember.isChild ? currentMember.id : 'eungyeol')
   const [loading, setLoading] = useState(true)
 
+  const today = new Date().toISOString().split('T')[0]
   const canEdit = currentMember.isChild
 
   const fetchData = async () => {
     const { data } = await supabase
       .from('homework').select('*')
+      .eq('due_date', today)
       .order('is_done', { ascending: true })
       .order('created_at', { ascending: false })
     if (data) setHomework(data)
@@ -46,6 +50,7 @@ export default function Homework({ currentMember }) {
       subject: subject.trim(),
       content: content.trim() || '(사진 참고)',
       image_url: imageUrl,
+      due_date: today,
     })
     setSubject('')
     setContent('')
@@ -77,15 +82,23 @@ export default function Homework({ currentMember }) {
           <BookOpen className="w-7 h-7 text-purple-500" />
           <h2 className="text-2xl font-bold font-cute text-purple-600">숙제</h2>
         </div>
-        {canEdit ? (
-          <button onClick={() => setShowForm(!showForm)} className="cute-button bg-purple-400 text-white">
-            <Plus className="w-5 h-5 inline" />
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowHistory(true)}
+            className="cute-button bg-purple-100 text-purple-700 text-sm flex items-center gap-1"
+          >
+            <History className="w-4 h-4" /> 기록
           </button>
-        ) : (
-          <div className="flex items-center gap-1 text-xs text-gray-400 px-3 py-2 bg-gray-100 rounded-2xl">
-            <Lock className="w-3 h-3" />보기만 가능
-          </div>
-        )}
+          {canEdit ? (
+            <button onClick={() => setShowForm(!showForm)} className="cute-button bg-purple-400 text-white">
+              <Plus className="w-5 h-5 inline" />
+            </button>
+          ) : (
+            <div className="flex items-center gap-1 text-xs text-gray-400 px-3 py-2 bg-gray-100 rounded-2xl">
+              <Lock className="w-3 h-3" />보기만
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -122,11 +135,9 @@ export default function Homework({ currentMember }) {
       {showForm && canEdit && (
         <div className="pastel-card p-4 fade-in">
           <p className="text-sm text-gray-500 mb-3">
-            {currentMember.emoji} {currentMember.name}의 숙제를 추가해요
+            {currentMember.emoji} {currentMember.name}의 오늘 숙제를 추가해요
           </p>
-
           <QuickTemplates category="homework" onSelect={handleTemplateSelect} color="purple" />
-
           <input
             type="text"
             value={subject}
@@ -164,7 +175,13 @@ export default function Homework({ currentMember }) {
       ) : filtered.length === 0 ? (
         <div className="pastel-card p-8 text-center">
           <div className="text-5xl mb-3">📚</div>
-          <p className="text-gray-500">아직 숙제가 없어요</p>
+          <p className="text-gray-500">오늘 숙제가 없어요</p>
+          <button
+            onClick={() => setShowHistory(true)}
+            className="mt-3 text-sm text-purple-500 underline"
+          >
+            지난 기록 보기
+          </button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -208,13 +225,12 @@ export default function Homework({ currentMember }) {
       )}
 
       {zoomImage && (
-        <div
-          onClick={() => setZoomImage(null)}
-          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer"
-        >
+        <div onClick={() => setZoomImage(null)} className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 cursor-pointer">
           <img src={zoomImage} alt="크게 보기" className="max-w-full max-h-full rounded-2xl" />
         </div>
       )}
+
+      {showHistory && <HistoryView category="homework" onClose={() => setShowHistory(false)} />}
     </div>
   )
 }
