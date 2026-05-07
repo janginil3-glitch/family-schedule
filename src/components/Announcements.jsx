@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, AlertCircle, Megaphone } from 'lucide-react'
+import { Plus, Trash2, AlertCircle, Megaphone, Check } from 'lucide-react'
 import { supabase, getMember } from '../lib/supabase'
 import { sendNotification } from '../lib/notifications'
 import ImageUpload from './ImageUpload'
@@ -51,6 +51,7 @@ export default function Announcements({ currentMember }) {
       author_id: currentMember.id,
       is_important: isImportant,
       image_url: imageUrl,
+      confirmed_by: [],
     })
     if (!error) {
       setContent('')
@@ -63,6 +64,29 @@ export default function Announcements({ currentMember }) {
   const handleDelete = async (id) => {
     if (!confirm('정말 지울까요?')) return
     await supabase.from('announcements').delete().eq('id', id)
+  }
+
+  // 확인 / 확인 취소
+  const handleToggleConfirm = async (item) => {
+    const confirmedBy = Array.isArray(item.confirmed_by) ? item.confirmed_by : []
+    const alreadyConfirmed = confirmedBy.some(c => c.member_id === currentMember.id)
+
+    let newConfirmedBy
+    if (alreadyConfirmed) {
+      // 이미 확인했으면 취소
+      newConfirmedBy = confirmedBy.filter(c => c.member_id !== currentMember.id)
+    } else {
+      // 처음 확인하면 추가
+      newConfirmedBy = [
+        ...confirmedBy,
+        { member_id: currentMember.id, confirmed_at: new Date().toISOString() }
+      ]
+    }
+
+    await supabase
+      .from('announcements')
+      .update({ confirmed_by: newConfirmedBy })
+      .eq('id', item.id)
   }
 
   const formatTime = (timestamp) => {
@@ -139,6 +163,8 @@ export default function Announcements({ currentMember }) {
         <div className="space-y-3">
           {announcements.map(item => {
             const author = getMember(item.author_id)
+            const confirmedBy = Array.isArray(item.confirmed_by) ? item.confirmed_by : []
+            const isConfirmedByMe = confirmedBy.some(c => c.member_id === currentMember.id)
             return (
               <div
                 key={item.id}
@@ -146,7 +172,7 @@ export default function Announcements({ currentMember }) {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <span className="text-xl">{author?.emoji}</span>
                       <span className="font-bold text-sm">{author?.name}</span>
                       <span className="text-xs text-gray-400">{formatTime(item.created_at)}</span>
@@ -176,6 +202,45 @@ export default function Announcements({ currentMember }) {
                       <Trash2 className="w-4 h-4" />
                     </button>
                   )}
+                </div>
+
+                {/* 확인 영역 */}
+                <div className="mt-3 pt-3 border-t border-pink-100 flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {confirmedBy.length === 0 ? (
+                      <span className="text-xs text-gray-400">아직 아무도 확인하지 않았어요</span>
+                    ) : (
+                      <>
+                        <span className="text-xs text-gray-500 mr-1">확인:</span>
+                        {confirmedBy.map(c => {
+                          const m = getMember(c.member_id)
+                          if (!m) return null
+                          return (
+                            <span
+                              key={c.member_id}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-${m.color}-100 text-${m.color}-700 border border-${m.color}-200`}
+                              title={new Date(c.confirmed_at).toLocaleString('ko-KR')}
+                            >
+                              <span>{m.emoji}</span>
+                              <span>{m.name}</span>
+                              <Check className="w-3 h-3" />
+                            </span>
+                          )
+                        })}
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleToggleConfirm(item)}
+                    className={`cute-button text-xs tap-effect flex items-center gap-1 ${
+                      isConfirmedByMe
+                        ? 'bg-green-100 text-green-700 border-2 border-green-300'
+                        : 'bg-pink-400 text-white'
+                    }`}
+                  >
+                    <Check className="w-4 h-4" />
+                    {isConfirmedByMe ? '확인 취소' : '확인했어요'}
+                  </button>
                 </div>
               </div>
             )
