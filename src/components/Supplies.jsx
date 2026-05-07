@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Check, Trash2, Backpack, History } from 'lucide-react'
+import { Plus, Check, Trash2, Backpack, History, Pencil, X } from 'lucide-react'
 import { supabase, FAMILY_MEMBERS, getMember } from '../lib/supabase'
 import QuickTemplates from './QuickTemplates'
 import HistoryView from './HistoryView'
@@ -12,6 +12,7 @@ export default function Supplies({ currentMember }) {
   const [forDate, setForDate] = useState(new Date().toISOString().split('T')[0])
   const [viewMember, setViewMember] = useState(currentMember.id)
   const [loading, setLoading] = useState(true)
+  const [editingId, setEditingId] = useState(null) // 수정 중인 항목 id
 
   const fetchData = async () => {
     const { data } = await supabase
@@ -32,15 +33,39 @@ export default function Supplies({ currentMember }) {
     return () => supabase.removeChannel(channel)
   }, [])
 
+  const resetForm = () => {
+    setItemName('')
+    setForDate(new Date().toISOString().split('T')[0])
+    setShowForm(false)
+    setEditingId(null)
+  }
+
   const handleSubmit = async () => {
     if (!itemName.trim()) return
-    await supabase.from('supplies').insert({
-      member_id: viewMember,
-      item_name: itemName.trim(),
-      for_date: forDate,
-    })
-    setItemName('')
-    setShowForm(false)
+
+    if (editingId) {
+      // 수정 모드
+      await supabase.from('supplies').update({
+        item_name: itemName.trim(),
+        for_date: forDate,
+      }).eq('id', editingId)
+    } else {
+      // 새로 추가
+      await supabase.from('supplies').insert({
+        member_id: viewMember,
+        item_name: itemName.trim(),
+        for_date: forDate,
+        confirmed_by: [],
+      })
+    }
+    resetForm()
+  }
+
+  const handleEdit = (item) => {
+    setEditingId(item.id)
+    setItemName(item.item_name)
+    setForDate(item.for_date)
+    setShowForm(true)
   }
 
   const handleTemplateSelect = (template) => {
@@ -52,7 +77,29 @@ export default function Supplies({ currentMember }) {
   }
 
   const handleDelete = async (id) => {
+    if (!confirm('정말 지울까요?')) return
     await supabase.from('supplies').delete().eq('id', id)
+  }
+
+  // 확인 / 확인 취소
+  const handleToggleConfirm = async (item) => {
+    const confirmedBy = Array.isArray(item.confirmed_by) ? item.confirmed_by : []
+    const alreadyConfirmed = confirmedBy.some(c => c.member_id === currentMember.id)
+
+    let newConfirmedBy
+    if (alreadyConfirmed) {
+      newConfirmedBy = confirmedBy.filter(c => c.member_id !== currentMember.id)
+    } else {
+      newConfirmedBy = [
+        ...confirmedBy,
+        { member_id: currentMember.id, confirmed_at: new Date().toISOString() }
+      ]
+    }
+
+    await supabase
+      .from('supplies')
+      .update({ confirmed_by: newConfirmedBy })
+      .eq('id', item.id)
   }
 
   const filtered = supplies.filter(s => s.member_id === viewMember)
@@ -86,7 +133,16 @@ export default function Supplies({ currentMember }) {
           >
             <History className="w-4 h-4" /> 기록
           </button>
-          <button onClick={() => setShowForm(!showForm)} className="cute-button bg-green-400 text-white">
+          <button
+            onClick={() => {
+              if (showForm) {
+                resetForm()
+              } else {
+                setShowForm(true)
+              }
+            }}
+            className="cute-button bg-green-400 text-white"
+          >
             <Plus className="w-5 h-5 inline" />
           </button>
         </div>
@@ -110,10 +166,20 @@ export default function Supplies({ currentMember }) {
 
       {showForm && (
         <div className="pastel-card p-4 fade-in">
-          <p className="text-sm text-gray-500 mb-3">
-            {getMember(viewMember)?.emoji} {getMember(viewMember)?.name}의 준비물을 추가해요
-          </p>
-          <QuickTemplates category="supplies" onSelect={handleTemplateSelect} color="green" />
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-green-600 font-bold">
+              {editingId ? '✏️ 준비물 수정하기' : `${getMember(viewMember)?.emoji} ${getMember(viewMember)?.name}의 준비물 추가`}
+            </p>
+            {editingId && (
+              <button
+                onClick={resetForm}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {!editingId && <QuickTemplates category="supplies" onSelect={handleTemplateSelect} color="green" />}
           <input
             type="text"
             value={itemName}
@@ -128,7 +194,7 @@ export default function Supplies({ currentMember }) {
             className="cute-input w-full mb-3"
           />
           <div className="flex gap-2 justify-end">
-            <button onClick={() => setShowForm(false)} className="cute-button bg-gray-200 text-gray-600">
+            <button onClick={resetForm} className="cute-button bg-gray-200 text-gray-600">
               취소
             </button>
             <button
@@ -136,7 +202,7 @@ export default function Supplies({ currentMember }) {
               disabled={!itemName.trim()}
               className="cute-button bg-green-500 text-white disabled:opacity-50"
             >
-              담기 🎒
+              {editingId ? '저장하기 💾' : '담기 🎒'}
             </button>
           </div>
         </div>
@@ -168,25 +234,77 @@ export default function Supplies({ currentMember }) {
                     {packed} / {items.length}
                   </span>
                 </div>
-                <div className="space-y-2">
-                  {items.map(item => (
-                    <div key={item.id} className={`flex items-center gap-3 ${item.is_packed ? 'opacity-50' : ''}`}>
-                      <button
-                        onClick={() => togglePacked(item)}
-                        className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 tap-effect transition-all ${
-                          item.is_packed ? 'bg-green-400 border-green-400' : 'border-gray-300 hover:border-green-300'
-                        }`}
-                      >
-                        {item.is_packed && <Check className="w-4 h-4 text-white" />}
-                      </button>
-                      <span className={`flex-1 ${item.is_packed ? 'line-through text-gray-400' : ''}`}>
-                        {item.item_name}
-                      </span>
-                      <button onClick={() => handleDelete(item.id)} className="text-gray-300 hover:text-red-400 p-1">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+                <div className="space-y-3">
+                  {items.map(item => {
+                    const confirmedBy = Array.isArray(item.confirmed_by) ? item.confirmed_by : []
+                    const isConfirmedByMe = confirmedBy.some(c => c.member_id === currentMember.id)
+                    return (
+                      <div key={item.id} className={`bg-white/60 rounded-2xl p-3 border border-green-100 ${item.is_packed ? 'opacity-60' : ''}`}>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => togglePacked(item)}
+                            className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 tap-effect transition-all ${
+                              item.is_packed ? 'bg-green-400 border-green-400' : 'border-gray-300 hover:border-green-300'
+                            }`}
+                          >
+                            {item.is_packed && <Check className="w-4 h-4 text-white" />}
+                          </button>
+                          <span className={`flex-1 ${item.is_packed ? 'line-through text-gray-400' : ''}`}>
+                            {item.item_name}
+                          </span>
+                          <button
+                            onClick={() => handleEdit(item)}
+                            className="text-gray-400 hover:text-green-500 p-1"
+                            title="수정"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handleDelete(item.id)} className="text-gray-300 hover:text-red-400 p-1" title="삭제">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* 확인 영역 */}
+                        <div className="mt-2 pt-2 border-t border-green-100 flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {confirmedBy.length === 0 ? (
+                              <span className="text-[10px] text-gray-400">아직 확인 안 함</span>
+                            ) : (
+                              <>
+                                <span className="text-[10px] text-gray-500 mr-1">확인:</span>
+                                {confirmedBy.map(c => {
+                                  const m = getMember(c.member_id)
+                                  if (!m) return null
+                                  return (
+                                    <span
+                                      key={c.member_id}
+                                      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-${m.color}-100 text-${m.color}-700 border border-${m.color}-200`}
+                                      title={new Date(c.confirmed_at).toLocaleString('ko-KR')}
+                                    >
+                                      <span>{m.emoji}</span>
+                                      <span>{m.name}</span>
+                                      <Check className="w-2.5 h-2.5" />
+                                    </span>
+                                  )
+                                })}
+                              </>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleToggleConfirm(item)}
+                            className={`text-[10px] font-bold px-2 py-1 rounded-full tap-effect flex items-center gap-1 ${
+                              isConfirmedByMe
+                                ? 'bg-green-100 text-green-700 border border-green-300'
+                                : 'bg-green-400 text-white'
+                            }`}
+                          >
+                            <Check className="w-3 h-3" />
+                            {isConfirmedByMe ? '확인 취소' : '확인했어요'}
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )
