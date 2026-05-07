@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Check, Trash2, Clock, Bell, BellOff, ListChecks, History } from 'lucide-react'
+import { Plus, Check, Trash2, Clock, Bell, BellOff, ListChecks, History, Pencil, X } from 'lucide-react'
 import { supabase, FAMILY_MEMBERS, getMember } from '../lib/supabase'
 import QuickTemplates from './QuickTemplates'
 import HistoryView from './HistoryView'
@@ -13,6 +13,7 @@ export default function Todos({ currentMember }) {
   const [notify, setNotify] = useState(true)
   const [viewMember, setViewMember] = useState(currentMember.id)
   const [loading, setLoading] = useState(true)
+  const [editingId, setEditingId] = useState(null) // 수정 중인 항목 id
 
   const today = new Date().toISOString().split('T')[0]
 
@@ -33,19 +34,44 @@ export default function Todos({ currentMember }) {
     return () => supabase.removeChannel(channel)
   }, [])
 
-  const handleSubmit = async () => {
-    if (!title.trim()) return
-    await supabase.from('todos').insert({
-      member_id: viewMember,
-      title: title.trim(),
-      scheduled_time: time || null,
-      date: today,
-      notify_enabled: notify,
-    })
+  const resetForm = () => {
     setTitle('')
     setTime('')
     setNotify(true)
     setShowForm(false)
+    setEditingId(null)
+  }
+
+  const handleSubmit = async () => {
+    if (!title.trim()) return
+
+    if (editingId) {
+      // 수정 모드
+      await supabase.from('todos').update({
+        title: title.trim(),
+        scheduled_time: time || null,
+        notify_enabled: notify,
+      }).eq('id', editingId)
+    } else {
+      // 새로 추가
+      await supabase.from('todos').insert({
+        member_id: viewMember,
+        title: title.trim(),
+        scheduled_time: time || null,
+        date: today,
+        notify_enabled: notify,
+        confirmed_by: [],
+      })
+    }
+    resetForm()
+  }
+
+  const handleEdit = (todo) => {
+    setEditingId(todo.id)
+    setTitle(todo.title)
+    setTime(todo.scheduled_time ? todo.scheduled_time.substring(0, 5) : '')
+    setNotify(todo.notify_enabled !== false)
+    setShowForm(true)
   }
 
   const handleTemplateSelect = (template) => {
@@ -58,7 +84,29 @@ export default function Todos({ currentMember }) {
   }
 
   const handleDelete = async (id) => {
+    if (!confirm('정말 지울까요?')) return
     await supabase.from('todos').delete().eq('id', id)
+  }
+
+  // 확인 / 확인 취소
+  const handleToggleConfirm = async (todo) => {
+    const confirmedBy = Array.isArray(todo.confirmed_by) ? todo.confirmed_by : []
+    const alreadyConfirmed = confirmedBy.some(c => c.member_id === currentMember.id)
+
+    let newConfirmedBy
+    if (alreadyConfirmed) {
+      newConfirmedBy = confirmedBy.filter(c => c.member_id !== currentMember.id)
+    } else {
+      newConfirmedBy = [
+        ...confirmedBy,
+        { member_id: currentMember.id, confirmed_at: new Date().toISOString() }
+      ]
+    }
+
+    await supabase
+      .from('todos')
+      .update({ confirmed_by: newConfirmedBy })
+      .eq('id', todo.id)
   }
 
   const memberTodos = todos.filter(t => t.member_id === viewMember)
@@ -78,7 +126,16 @@ export default function Todos({ currentMember }) {
           >
             <History className="w-4 h-4" /> 기록
           </button>
-          <button onClick={() => setShowForm(!showForm)} className="cute-button bg-blue-400 text-white">
+          <button
+            onClick={() => {
+              if (showForm) {
+                resetForm()
+              } else {
+                setShowForm(true)
+              }
+            }}
+            className="cute-button bg-blue-400 text-white"
+          >
             <Plus className="w-5 h-5 inline" />
           </button>
         </div>
@@ -121,7 +178,20 @@ export default function Todos({ currentMember }) {
 
       {showForm && (
         <div className="pastel-card p-4 fade-in">
-          <QuickTemplates category="todo" onSelect={handleTemplateSelect} color="blue" />
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-bold text-blue-600">
+              {editingId ? '✏️ 수정하기' : '✨ 새로 추가'}
+            </span>
+            {editingId && (
+              <button
+                onClick={resetForm}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {!editingId && <QuickTemplates category="todo" onSelect={handleTemplateSelect} color="blue" />}
           <input
             type="text"
             value={title}
@@ -149,7 +219,7 @@ export default function Todos({ currentMember }) {
             <span className="text-sm">시간 되면 알림 받기</span>
           </label>
           <div className="flex gap-2 justify-end">
-            <button onClick={() => setShowForm(false)} className="cute-button bg-gray-200 text-gray-600">
+            <button onClick={resetForm} className="cute-button bg-gray-200 text-gray-600">
               취소
             </button>
             <button
@@ -157,7 +227,7 @@ export default function Todos({ currentMember }) {
               disabled={!title.trim()}
               className="cute-button bg-blue-500 text-white disabled:opacity-50"
             >
-              추가하기 ✨
+              {editingId ? '저장하기 💾' : '추가하기 ✨'}
             </button>
           </div>
         </div>
@@ -178,36 +248,88 @@ export default function Todos({ currentMember }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {memberTodos.map(todo => (
-            <div
-              key={todo.id}
-              className={`pastel-card p-4 flex items-center gap-3 transition-all ${todo.is_done ? 'opacity-60' : ''}`}
-            >
-              <button
-                onClick={() => toggleDone(todo)}
-                className={`w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 tap-effect transition-all ${
-                  todo.is_done ? 'bg-blue-400 border-blue-400' : 'border-gray-300 hover:border-blue-300'
-                }`}
+          {memberTodos.map(todo => {
+            const confirmedBy = Array.isArray(todo.confirmed_by) ? todo.confirmed_by : []
+            const isConfirmedByMe = confirmedBy.some(c => c.member_id === currentMember.id)
+            return (
+              <div
+                key={todo.id}
+                className={`pastel-card p-4 transition-all ${todo.is_done ? 'opacity-60' : ''}`}
               >
-                {todo.is_done && <Check className="w-5 h-5 text-white" />}
-              </button>
-              <div className="flex-1">
-                <div className={`font-bold ${todo.is_done ? 'line-through text-gray-400' : ''}`}>
-                  {todo.title}
-                </div>
-                {todo.scheduled_time && (
-                  <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
-                    <Clock className="w-3 h-3" />
-                    {todo.scheduled_time.substring(0, 5)}
-                    {todo.notify_enabled ? <Bell className="w-3 h-3 ml-1 text-blue-400" /> : <BellOff className="w-3 h-3 ml-1" />}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => toggleDone(todo)}
+                    className={`w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 tap-effect transition-all ${
+                      todo.is_done ? 'bg-blue-400 border-blue-400' : 'border-gray-300 hover:border-blue-300'
+                    }`}
+                  >
+                    {todo.is_done && <Check className="w-5 h-5 text-white" />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className={`font-bold ${todo.is_done ? 'line-through text-gray-400' : ''}`}>
+                      {todo.title}
+                    </div>
+                    {todo.scheduled_time && (
+                      <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
+                        <Clock className="w-3 h-3" />
+                        {todo.scheduled_time.substring(0, 5)}
+                        {todo.notify_enabled ? <Bell className="w-3 h-3 ml-1 text-blue-400" /> : <BellOff className="w-3 h-3 ml-1" />}
+                      </div>
+                    )}
                   </div>
-                )}
+                  <button
+                    onClick={() => handleEdit(todo)}
+                    className="text-gray-400 hover:text-blue-500 p-2"
+                    title="수정"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handleDelete(todo.id)} className="text-gray-300 hover:text-red-400 p-2" title="삭제">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* 확인 영역 */}
+                <div className="mt-3 pt-3 border-t border-blue-100 flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {confirmedBy.length === 0 ? (
+                      <span className="text-xs text-gray-400">아직 아무도 확인하지 않았어요</span>
+                    ) : (
+                      <>
+                        <span className="text-xs text-gray-500 mr-1">확인:</span>
+                        {confirmedBy.map(c => {
+                          const m = getMember(c.member_id)
+                          if (!m) return null
+                          return (
+                            <span
+                              key={c.member_id}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-${m.color}-100 text-${m.color}-700 border border-${m.color}-200`}
+                              title={new Date(c.confirmed_at).toLocaleString('ko-KR')}
+                            >
+                              <span>{m.emoji}</span>
+                              <span>{m.name}</span>
+                              <Check className="w-3 h-3" />
+                            </span>
+                          )
+                        })}
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleToggleConfirm(todo)}
+                    className={`cute-button text-xs tap-effect flex items-center gap-1 ${
+                      isConfirmedByMe
+                        ? 'bg-green-100 text-green-700 border-2 border-green-300'
+                        : 'bg-blue-400 text-white'
+                    }`}
+                  >
+                    <Check className="w-4 h-4" />
+                    {isConfirmedByMe ? '확인 취소' : '확인했어요'}
+                  </button>
+                </div>
               </div>
-              <button onClick={() => handleDelete(todo.id)} className="text-gray-300 hover:text-red-400 p-2">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
