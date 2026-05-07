@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Check, Trash2, BookOpen, Lock, History } from 'lucide-react'
+import { Plus, Check, Trash2, BookOpen, Lock, History, Pencil, X } from 'lucide-react'
 import { supabase, getMember } from '../lib/supabase'
 import QuickTemplates from './QuickTemplates'
 import ImageUpload from './ImageUpload'
@@ -20,6 +20,7 @@ export default function Homework({ currentMember }) {
   const [zoomImage, setZoomImage] = useState(null)
   const [viewChild, setViewChild] = useState(currentMember.isChild ? currentMember.id : 'eungyeol')
   const [loading, setLoading] = useState(true)
+  const [editingId, setEditingId] = useState(null) // 수정 중인 항목 id
 
   const today = new Date().toISOString().split('T')[0]
   const canEdit = currentMember.isChild
@@ -43,19 +44,44 @@ export default function Homework({ currentMember }) {
     return () => supabase.removeChannel(channel)
   }, [])
 
-  const handleSubmit = async () => {
-    if (!subject.trim() || (!content.trim() && !imageUrl)) return
-    await supabase.from('homework').insert({
-      member_id: currentMember.id,
-      subject: subject.trim(),
-      content: content.trim() || '(사진 참고)',
-      image_url: imageUrl,
-      due_date: today,
-    })
+  const resetForm = () => {
     setSubject('')
     setContent('')
     setImageUrl(null)
     setShowForm(false)
+    setEditingId(null)
+  }
+
+  const handleSubmit = async () => {
+    if (!subject.trim() || (!content.trim() && !imageUrl)) return
+
+    if (editingId) {
+      // 수정 모드
+      await supabase.from('homework').update({
+        subject: subject.trim(),
+        content: content.trim() || '(사진 참고)',
+        image_url: imageUrl,
+      }).eq('id', editingId)
+    } else {
+      // 새로 추가
+      await supabase.from('homework').insert({
+        member_id: currentMember.id,
+        subject: subject.trim(),
+        content: content.trim() || '(사진 참고)',
+        image_url: imageUrl,
+        due_date: today,
+        confirmed_by: [],
+      })
+    }
+    resetForm()
+  }
+
+  const handleEdit = (hw) => {
+    setEditingId(hw.id)
+    setSubject(hw.subject)
+    setContent(hw.content === '(사진 참고)' ? '' : hw.content)
+    setImageUrl(hw.image_url)
+    setShowForm(true)
   }
 
   const handleTemplateSelect = (template) => {
@@ -69,7 +95,29 @@ export default function Homework({ currentMember }) {
   }
 
   const handleDelete = async (id) => {
+    if (!confirm('정말 지울까요?')) return
     await supabase.from('homework').delete().eq('id', id)
+  }
+
+  // 확인 / 확인 취소 (부모님도 확인 가능)
+  const handleToggleConfirm = async (hw) => {
+    const confirmedBy = Array.isArray(hw.confirmed_by) ? hw.confirmed_by : []
+    const alreadyConfirmed = confirmedBy.some(c => c.member_id === currentMember.id)
+
+    let newConfirmedBy
+    if (alreadyConfirmed) {
+      newConfirmedBy = confirmedBy.filter(c => c.member_id !== currentMember.id)
+    } else {
+      newConfirmedBy = [
+        ...confirmedBy,
+        { member_id: currentMember.id, confirmed_at: new Date().toISOString() }
+      ]
+    }
+
+    await supabase
+      .from('homework')
+      .update({ confirmed_by: newConfirmedBy })
+      .eq('id', hw.id)
   }
 
   const filtered = homework.filter(h => h.member_id === viewChild)
@@ -90,7 +138,16 @@ export default function Homework({ currentMember }) {
             <History className="w-4 h-4" /> 기록
           </button>
           {canEdit ? (
-            <button onClick={() => setShowForm(!showForm)} className="cute-button bg-purple-400 text-white">
+            <button
+              onClick={() => {
+                if (showForm) {
+                  resetForm()
+                } else {
+                  setShowForm(true)
+                }
+              }}
+              className="cute-button bg-purple-400 text-white"
+            >
               <Plus className="w-5 h-5 inline" />
             </button>
           ) : (
@@ -134,10 +191,20 @@ export default function Homework({ currentMember }) {
 
       {showForm && canEdit && (
         <div className="pastel-card p-4 fade-in">
-          <p className="text-sm text-gray-500 mb-3">
-            {currentMember.emoji} {currentMember.name}의 오늘 숙제를 추가해요
-          </p>
-          <QuickTemplates category="homework" onSelect={handleTemplateSelect} color="purple" />
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-purple-600 font-bold">
+              {editingId ? '✏️ 숙제 수정하기' : `${currentMember.emoji} ${currentMember.name}의 오늘 숙제 추가`}
+            </p>
+            {editingId && (
+              <button
+                onClick={resetForm}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {!editingId && <QuickTemplates category="homework" onSelect={handleTemplateSelect} color="purple" />}
           <input
             type="text"
             value={subject}
@@ -154,7 +221,7 @@ export default function Homework({ currentMember }) {
           <ImageUpload value={imageUrl} onChange={setImageUrl} color="purple" />
           <div className="flex gap-2 justify-end mt-3">
             <button
-              onClick={() => { setShowForm(false); setSubject(''); setContent(''); setImageUrl(null); }}
+              onClick={resetForm}
               className="cute-button bg-gray-200 text-gray-600"
             >
               취소
@@ -164,7 +231,7 @@ export default function Homework({ currentMember }) {
               disabled={!subject.trim() || (!content.trim() && !imageUrl)}
               className="cute-button bg-purple-500 text-white disabled:opacity-50"
             >
-              추가하기 📝
+              {editingId ? '저장하기 💾' : '추가하기 📝'}
             </button>
           </div>
         </div>
@@ -185,42 +252,97 @@ export default function Homework({ currentMember }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {filtered.map(hw => (
-            <div key={hw.id} className={`pastel-card p-4 flex items-start gap-3 ${hw.is_done ? 'opacity-60' : ''}`}>
-              <button
-                onClick={() => toggleDone(hw)}
-                disabled={!canEdit}
-                className={`w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 tap-effect transition-all mt-1 ${
-                  hw.is_done ? 'bg-purple-400 border-purple-400' : 'border-gray-300 hover:border-purple-300'
-                } ${!canEdit ? 'cursor-not-allowed' : ''}`}
-              >
-                {hw.is_done && <Check className="w-5 h-5 text-white" />}
-              </button>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">
-                    {hw.subject}
-                  </span>
+          {filtered.map(hw => {
+            const confirmedBy = Array.isArray(hw.confirmed_by) ? hw.confirmed_by : []
+            const isConfirmedByMe = confirmedBy.some(c => c.member_id === currentMember.id)
+            const isMine = hw.member_id === currentMember.id
+            return (
+              <div key={hw.id} className={`pastel-card p-4 ${hw.is_done ? 'opacity-60' : ''}`}>
+                <div className="flex items-start gap-3">
+                  <button
+                    onClick={() => toggleDone(hw)}
+                    disabled={!canEdit}
+                    className={`w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 tap-effect transition-all mt-1 ${
+                      hw.is_done ? 'bg-purple-400 border-purple-400' : 'border-gray-300 hover:border-purple-300'
+                    } ${!canEdit ? 'cursor-not-allowed' : ''}`}
+                  >
+                    {hw.is_done && <Check className="w-5 h-5 text-white" />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-bold">
+                        {hw.subject}
+                      </span>
+                    </div>
+                    <div className={`mb-2 ${hw.is_done ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                      {hw.content}
+                    </div>
+                    {hw.image_url && (
+                      <img
+                        src={hw.image_url}
+                        alt="숙제 사진"
+                        onClick={() => setZoomImage(hw.image_url)}
+                        className="rounded-xl max-h-48 cursor-pointer hover:opacity-90 border border-gray-200"
+                      />
+                    )}
+                  </div>
+                  {canEdit && isMine && (
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => handleEdit(hw)}
+                        className="text-gray-400 hover:text-purple-500 p-2"
+                        title="수정"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDelete(hw.id)} className="text-gray-300 hover:text-red-400 p-2" title="삭제">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className={`mb-2 ${hw.is_done ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-                  {hw.content}
+
+                {/* 확인 영역 */}
+                <div className="mt-3 pt-3 border-t border-purple-100 flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {confirmedBy.length === 0 ? (
+                      <span className="text-xs text-gray-400">아직 아무도 확인하지 않았어요</span>
+                    ) : (
+                      <>
+                        <span className="text-xs text-gray-500 mr-1">확인:</span>
+                        {confirmedBy.map(c => {
+                          const m = getMember(c.member_id)
+                          if (!m) return null
+                          return (
+                            <span
+                              key={c.member_id}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-${m.color}-100 text-${m.color}-700 border border-${m.color}-200`}
+                              title={new Date(c.confirmed_at).toLocaleString('ko-KR')}
+                            >
+                              <span>{m.emoji}</span>
+                              <span>{m.name}</span>
+                              <Check className="w-3 h-3" />
+                            </span>
+                          )
+                        })}
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleToggleConfirm(hw)}
+                    className={`cute-button text-xs tap-effect flex items-center gap-1 ${
+                      isConfirmedByMe
+                        ? 'bg-green-100 text-green-700 border-2 border-green-300'
+                        : 'bg-purple-400 text-white'
+                    }`}
+                  >
+                    <Check className="w-4 h-4" />
+                    {isConfirmedByMe ? '확인 취소' : '확인했어요'}
+                  </button>
                 </div>
-                {hw.image_url && (
-                  <img
-                    src={hw.image_url}
-                    alt="숙제 사진"
-                    onClick={() => setZoomImage(hw.image_url)}
-                    className="rounded-xl max-h-48 cursor-pointer hover:opacity-90 border border-gray-200"
-                  />
-                )}
               </div>
-              {canEdit && hw.member_id === currentMember.id && (
-                <button onClick={() => handleDelete(hw.id)} className="text-gray-300 hover:text-red-400 p-2">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
