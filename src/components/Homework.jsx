@@ -4,6 +4,7 @@ import { supabase, getMember } from '../lib/supabase'
 import QuickTemplates from './QuickTemplates'
 import ImageUpload from './ImageUpload'
 import HistoryView from './HistoryView'
+import Comments from './Comments'
 
 const CHILDREN = [
   { id: 'eungyeol', name: '은결', emoji: '🦁', color: 'eungyeol' },
@@ -20,7 +21,7 @@ export default function Homework({ currentMember }) {
   const [zoomImage, setZoomImage] = useState(null)
   const [viewChild, setViewChild] = useState(currentMember.isChild ? currentMember.id : 'eungyeol')
   const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState(null) // 수정 중인 항목 id
+  const [editingId, setEditingId] = useState(null)
 
   const today = new Date().toISOString().split('T')[0]
   const canEdit = currentMember.isChild
@@ -56,14 +57,12 @@ export default function Homework({ currentMember }) {
     if (!subject.trim() || (!content.trim() && !imageUrl)) return
 
     if (editingId) {
-      // 수정 모드
       await supabase.from('homework').update({
         subject: subject.trim(),
         content: content.trim() || '(사진 참고)',
         image_url: imageUrl,
       }).eq('id', editingId)
     } else {
-      // 새로 추가
       await supabase.from('homework').insert({
         member_id: currentMember.id,
         subject: subject.trim(),
@@ -99,7 +98,6 @@ export default function Homework({ currentMember }) {
     await supabase.from('homework').delete().eq('id', id)
   }
 
-  // 확인 / 확인 취소 (부모님도 확인 가능)
   const handleToggleConfirm = async (hw) => {
     const confirmedBy = Array.isArray(hw.confirmed_by) ? hw.confirmed_by : []
     const alreadyConfirmed = confirmedBy.some(c => c.member_id === currentMember.id)
@@ -140,11 +138,8 @@ export default function Homework({ currentMember }) {
           {canEdit ? (
             <button
               onClick={() => {
-                if (showForm) {
-                  resetForm()
-                } else {
-                  setShowForm(true)
-                }
+                if (showForm) resetForm()
+                else setShowForm(true)
               }}
               className="cute-button bg-purple-400 text-white"
             >
@@ -196,10 +191,7 @@ export default function Homework({ currentMember }) {
               {editingId ? '✏️ 숙제 수정하기' : `${currentMember.emoji} ${currentMember.name}의 오늘 숙제 추가`}
             </p>
             {editingId && (
-              <button
-                onClick={resetForm}
-                className="text-gray-400 hover:text-gray-600"
-              >
+              <button onClick={resetForm} className="text-gray-400 hover:text-gray-600">
                 <X className="w-4 h-4" />
               </button>
             )}
@@ -220,10 +212,7 @@ export default function Homework({ currentMember }) {
           />
           <ImageUpload value={imageUrl} onChange={setImageUrl} color="purple" />
           <div className="flex gap-2 justify-end mt-3">
-            <button
-              onClick={resetForm}
-              className="cute-button bg-gray-200 text-gray-600"
-            >
+            <button onClick={resetForm} className="cute-button bg-gray-200 text-gray-600">
               취소
             </button>
             <button
@@ -340,6 +329,14 @@ export default function Homework({ currentMember }) {
                     {isConfirmedByMe ? '확인 취소' : '확인했어요'}
                   </button>
                 </div>
+
+                {/* 댓글 영역 */}
+                <Comments
+                  parentTable="homework"
+                  parentId={hw.id}
+                  currentMember={currentMember}
+                  themeColor="purple"
+                />
               </div>
             )
           })}
