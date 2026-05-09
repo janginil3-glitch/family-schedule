@@ -3,6 +3,7 @@ import { Plus, Trash2, AlertCircle, Megaphone, Check } from 'lucide-react'
 import { supabase, getMember } from '../lib/supabase'
 import { sendNotification } from '../lib/notifications'
 import ImageUpload from './ImageUpload'
+import Comments from './Comments'
 
 export default function Announcements({ currentMember }) {
   const [announcements, setAnnouncements] = useState([])
@@ -73,10 +74,8 @@ export default function Announcements({ currentMember }) {
 
     let newConfirmedBy
     if (alreadyConfirmed) {
-      // 이미 확인했으면 취소
       newConfirmedBy = confirmedBy.filter(c => c.member_id !== currentMember.id)
     } else {
-      // 처음 확인하면 추가
       newConfirmedBy = [
         ...confirmedBy,
         { member_id: currentMember.id, confirmed_at: new Date().toISOString() }
@@ -242,6 +241,14 @@ export default function Announcements({ currentMember }) {
                     {isConfirmedByMe ? '확인 취소' : '확인했어요'}
                   </button>
                 </div>
+
+                {/* 댓글 영역 */}
+                <Comments
+                  parentTable="announcements"
+                  parentId={item.id}
+                  currentMember={currentMember}
+                  themeColor="pink"
+                />
               </div>
             )
           })}
