@@ -3,6 +3,7 @@ import { Plus, Check, Trash2, Clock, Bell, BellOff, ListChecks, History, Pencil,
 import { supabase, FAMILY_MEMBERS, getMember } from '../lib/supabase'
 import QuickTemplates from './QuickTemplates'
 import HistoryView from './HistoryView'
+import Comments from './Comments'
 
 export default function Todos({ currentMember }) {
   const [todos, setTodos] = useState([])
@@ -13,7 +14,7 @@ export default function Todos({ currentMember }) {
   const [notify, setNotify] = useState(true)
   const [viewMember, setViewMember] = useState(currentMember.id)
   const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState(null) // 수정 중인 항목 id
+  const [editingId, setEditingId] = useState(null)
 
   const today = new Date().toISOString().split('T')[0]
 
@@ -46,14 +47,12 @@ export default function Todos({ currentMember }) {
     if (!title.trim()) return
 
     if (editingId) {
-      // 수정 모드
       await supabase.from('todos').update({
         title: title.trim(),
         scheduled_time: time || null,
         notify_enabled: notify,
       }).eq('id', editingId)
     } else {
-      // 새로 추가
       await supabase.from('todos').insert({
         member_id: viewMember,
         title: title.trim(),
@@ -88,7 +87,6 @@ export default function Todos({ currentMember }) {
     await supabase.from('todos').delete().eq('id', id)
   }
 
-  // 확인 / 확인 취소
   const handleToggleConfirm = async (todo) => {
     const confirmedBy = Array.isArray(todo.confirmed_by) ? todo.confirmed_by : []
     const alreadyConfirmed = confirmedBy.some(c => c.member_id === currentMember.id)
@@ -128,11 +126,8 @@ export default function Todos({ currentMember }) {
           </button>
           <button
             onClick={() => {
-              if (showForm) {
-                resetForm()
-              } else {
-                setShowForm(true)
-              }
+              if (showForm) resetForm()
+              else setShowForm(true)
             }}
             className="cute-button bg-blue-400 text-white"
           >
@@ -183,10 +178,7 @@ export default function Todos({ currentMember }) {
               {editingId ? '✏️ 수정하기' : '✨ 새로 추가'}
             </span>
             {editingId && (
-              <button
-                onClick={resetForm}
-                className="text-gray-400 hover:text-gray-600"
-              >
+              <button onClick={resetForm} className="text-gray-400 hover:text-gray-600">
                 <X className="w-4 h-4" />
               </button>
             )}
@@ -327,6 +319,14 @@ export default function Todos({ currentMember }) {
                     {isConfirmedByMe ? '확인 취소' : '확인했어요'}
                   </button>
                 </div>
+
+                {/* 댓글 영역 */}
+                <Comments
+                  parentTable="todos"
+                  parentId={todo.id}
+                  currentMember={currentMember}
+                  themeColor="blue"
+                />
               </div>
             )
           })}
