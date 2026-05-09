@@ -3,6 +3,7 @@ import { Plus, Check, Trash2, Backpack, History, Pencil, X } from 'lucide-react'
 import { supabase, FAMILY_MEMBERS, getMember } from '../lib/supabase'
 import QuickTemplates from './QuickTemplates'
 import HistoryView from './HistoryView'
+import Comments from './Comments'
 
 export default function Supplies({ currentMember }) {
   const [supplies, setSupplies] = useState([])
@@ -12,7 +13,7 @@ export default function Supplies({ currentMember }) {
   const [forDate, setForDate] = useState(new Date().toISOString().split('T')[0])
   const [viewMember, setViewMember] = useState(currentMember.id)
   const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState(null) // 수정 중인 항목 id
+  const [editingId, setEditingId] = useState(null)
 
   const fetchData = async () => {
     const { data } = await supabase
@@ -44,13 +45,11 @@ export default function Supplies({ currentMember }) {
     if (!itemName.trim()) return
 
     if (editingId) {
-      // 수정 모드
       await supabase.from('supplies').update({
         item_name: itemName.trim(),
         for_date: forDate,
       }).eq('id', editingId)
     } else {
-      // 새로 추가
       await supabase.from('supplies').insert({
         member_id: viewMember,
         item_name: itemName.trim(),
@@ -81,7 +80,6 @@ export default function Supplies({ currentMember }) {
     await supabase.from('supplies').delete().eq('id', id)
   }
 
-  // 확인 / 확인 취소
   const handleToggleConfirm = async (item) => {
     const confirmedBy = Array.isArray(item.confirmed_by) ? item.confirmed_by : []
     const alreadyConfirmed = confirmedBy.some(c => c.member_id === currentMember.id)
@@ -135,11 +133,8 @@ export default function Supplies({ currentMember }) {
           </button>
           <button
             onClick={() => {
-              if (showForm) {
-                resetForm()
-              } else {
-                setShowForm(true)
-              }
+              if (showForm) resetForm()
+              else setShowForm(true)
             }}
             className="cute-button bg-green-400 text-white"
           >
@@ -171,10 +166,7 @@ export default function Supplies({ currentMember }) {
               {editingId ? '✏️ 준비물 수정하기' : `${getMember(viewMember)?.emoji} ${getMember(viewMember)?.name}의 준비물 추가`}
             </p>
             {editingId && (
-              <button
-                onClick={resetForm}
-                className="text-gray-400 hover:text-gray-600"
-              >
+              <button onClick={resetForm} className="text-gray-400 hover:text-gray-600">
                 <X className="w-4 h-4" />
               </button>
             )}
@@ -302,6 +294,14 @@ export default function Supplies({ currentMember }) {
                             {isConfirmedByMe ? '확인 취소' : '확인했어요'}
                           </button>
                         </div>
+
+                        {/* 댓글 영역 */}
+                        <Comments
+                          parentTable="supplies"
+                          parentId={item.id}
+                          currentMember={currentMember}
+                          themeColor="green"
+                        />
                       </div>
                     )
                   })}
